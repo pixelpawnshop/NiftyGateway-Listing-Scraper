@@ -1,15 +1,49 @@
-# NiftyGateway Production Scraper - PowerShell Version
-Write-Host "NiftyGateway Production Scraper" -ForegroundColor Green
-Write-Host "================================" -ForegroundColor Green
+# NiftyGateway Production Scraper - PowerShell Version (FULL PAGE MODE)
+Write-Host "NiftyGateway Production Scraper - FULL PAGE MODE" -ForegroundColor Green
+Write-Host "================================================" -ForegroundColor Green
+Write-Host ""
+
+# Check if virtual environment exists
+if (-Not (Test-Path "venv\Scripts\Activate.ps1")) {
+    Write-Host "❌ Virtual environment not found!" -ForegroundColor Red
+    Write-Host "Please make sure you're in the correct directory and the venv folder exists." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
+    exit 1
+}
 
 # Activate virtual environment
-Write-Host "Activating virtual environment..." -ForegroundColor Yellow
-& "venv\Scripts\Activate.ps1"
-
-# Run the production scraper with default settings
-Write-Host "Starting production scrape..." -ForegroundColor Yellow
-python production_scraper.py --max-items 1000 --headless --max-scrolls 50
+Write-Host "🔧 Activating virtual environment..." -ForegroundColor Cyan
+try {
+    & "venv\Scripts\Activate.ps1"
+    Write-Host "✅ Virtual environment activated" -ForegroundColor Green
+} catch {
+    Write-Host "❌ Failed to activate virtual environment: $_" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
 
 Write-Host ""
-Write-Host "Scraping completed. Check the output files for results." -ForegroundColor Green
+Write-Host "🚀 Starting FULL PAGE scrape (this may take 2-4 hours)..." -ForegroundColor Yellow
+Write-Host "🎯 Target: ALL available items (~19,000)" -ForegroundColor Yellow
+Write-Host ""
+
+# Run the scraper with full page settings
+try {
+    python production_scraper.py --max-items 0 --headless --max-scrolls 400
+    $exitCode = $LASTEXITCODE
+    
+    Write-Host ""
+    if ($exitCode -eq 0) {
+        Write-Host "✅ Full page scraping completed successfully!" -ForegroundColor Green
+        Write-Host "📁 Check the output files for results." -ForegroundColor Cyan
+        Write-Host "📊 Expected: 15,000+ items if successful" -ForegroundColor Cyan
+    } else {
+        Write-Host "⚠️  Scraping completed with errors (exit code: $exitCode)" -ForegroundColor Yellow
+        Write-Host "📁 Check the output files for partial results." -ForegroundColor Cyan
+    }
+} catch {
+    Write-Host "❌ Error running scraper: $_" -ForegroundColor Red
+}
+
+Write-Host ""
 Read-Host "Press Enter to continue"

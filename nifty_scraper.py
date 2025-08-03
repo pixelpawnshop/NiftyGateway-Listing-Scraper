@@ -31,22 +31,29 @@ class NiftyGatewayScraper:
         
     def setup_driver(self):
         """Set up Chrome WebDriver with options"""
-        chrome_options = Options()
+        try:
+            chrome_options = Options()
 
-        if self.headless:
-            chrome_options.add_argument("--headless")
+            if self.headless:
+                chrome_options.add_argument("--headless")
 
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-        # Let webdriver-manager auto-detect and download compatible driver
-        service = Service(ChromeDriverManager().install())
+            # Let webdriver-manager auto-detect and download compatible driver
+            service = Service(ChromeDriverManager().install())
 
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.driver.implicitly_wait(10)
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.driver.implicitly_wait(10)
+            print("✅ WebDriver setup successful")
+            
+        except Exception as e:
+            print(f"❌ Failed to setup WebDriver: {e}")
+            print("⚠️  Continuing without WebDriver - some functions may not work")
+            self.driver = None
         
     def extract_contract_and_id(self, url: str) -> Dict[str, Optional[str]]:
         """
@@ -110,7 +117,10 @@ class NiftyGatewayScraper:
             )
             return True
         except TimeoutException:
-            print("Timeout waiting for items to load")
+            print("⚠️  Timeout waiting for items to load - continuing anyway")
+            return False
+        except Exception as e:
+            print(f"⚠️  Error waiting for items to load: {e} - continuing anyway")
             return False
     
     def scroll_to_load_more(self, scroll_pause_time: float = 2.0) -> bool:
@@ -320,42 +330,18 @@ class NiftyGatewayScraper:
         """
         try:
             # Get contract info from URL
-            contract_info = self.extract_contract_and_id(item_url)
-            
-            # Get page text for basic extractions
-            page_text = self.driver.find_element(By.TAG_NAME, "body").text
-            
-            # Fast text-based extraction
-            lines = [line.strip() for line in page_text.split('\n') if line.strip()]
-            
-            # Extract title - look for the main heading
-            title = "Unknown"
-            for line in lines[:10]:  # Check first 10 lines
-                if line and not line.startswith('$') and len(line) > 3:
-                    title = line
-                    break
-            
-            # Extract creator
-            creator = "Unknown"
-            for i, line in enumerate(lines):
-                if "created by" in line.lower() or "creator" in line.lower():
-                    if i + 1 < len(lines):
-                        creator = lines[i + 1]
-                        break
-            
-            # Extract item count
-            item_count = None
-            for line in lines:
-                count_match = re.search(r'(\d+)\s*[Ii]tems', line)
-                if count_match:
-                    try:
-                        item_count = int(count_match.group(1))
-                        break
-                    except ValueError:
-                        pass
-            
+            try:
+                contract_info = self.extract_contract_and_id(item_url)
+            except Exception as e:
+                print(f"⚠️  Contract extraction failed: {e}")
+                return None
+
             # Get floor price and token ID directly from the marketplace table
-            table_data = self.get_cheapest_token_id_and_price_from_current_page()
+            try:
+                table_data = self.get_cheapest_token_id_and_price_from_current_page()
+            except Exception as e:
+                print(f"⚠️  Table data extraction failed: {e}")
+                table_data = None
             
             floor_price = None
             floor_price_text = ""
@@ -369,7 +355,8 @@ class NiftyGatewayScraper:
                     try:
                         floor_price = float(list_price_str)
                         floor_price_text = f"${list_price_str} (Table List Price)"
-                    except ValueError:
+                    except (ValueError, TypeError) as e:
+                        print(f"⚠️  Price conversion failed: {e}")
                         pass
             
             return {
@@ -383,6 +370,7 @@ class NiftyGatewayScraper:
             }
             
         except Exception as e:
+            print(f"⚠️  Data extraction error: {e}")
             return None
 
     def get_cheapest_token_id_and_price_from_current_page(self) -> Optional[Dict[str, str]]:
@@ -753,86 +741,158 @@ class NiftyGatewayScraper:
         Returns:
             List of dictionaries containing item data
         """
-        if not self.driver:
-            self.setup_driver()
-        
-        print(f"Loading page: {url}")
-        self.driver.get(url)
-        
-        # Wait for initial items to load
-        if not self.wait_for_items_to_load():
-            print("Failed to load initial items")
-            return []
-
-        print("\n🔍 Phase 1: Collecting ALL collection URLs with aggressive scrolling...")
-        all_collection_urls = self.collect_all_urls_with_scrolling(max_scrolls)
-        
-        if not all_collection_urls:
-            print("❌ No collection URLs found")
-            return []
-        
-        print(f"📊 Total collection URLs found: {len(all_collection_urls)}")
-        
-        # Limit URLs if max_items specified
-        if max_items > 0 and max_items < len(all_collection_urls):
-            all_collection_urls = all_collection_urls[:max_items]
-            print(f"🎯 Limited to first {max_items} URLs")
-        
-        print(f"\n⚙️ Phase 2: Processing {len(all_collection_urls)} collection URLs...")
-        
-        # Process each URL to get floor price data
-        scraped_count = 0
-        for i, collection_url in enumerate(all_collection_urls, 1):
+        try:
+            if not self.driver:
+                print("🔧 Setting up WebDriver...")
+                self.setup_driver()
+                
+                if not self.driver:
+                    print("❌ Cannot proceed without WebDriver")
+                    return []
+            
+            print(f"🌐 Loading page: {url}")
+            
             try:
-                print(f"\n🔄 Processing {i}/{len(all_collection_urls)}: {collection_url}")
-                
-                # Navigate to collection page
-                self.driver.get(collection_url)
-                time.sleep(1)  # Brief wait for page load
-                
-                # Extract item data
-                item_data = self.extract_item_data_from_page(collection_url)
-                
-                if not item_data:
-                    print(f"❌ Failed to extract data")
-                    continue
-                
-                if item_data['floor_price'] is None:
-                    print(f"⚠️  No floor price found")
-                    continue
-                    
-                # Check if this is a collection item (we need contract_info for validation)
-                contract_info = self.extract_contract_and_id(collection_url)
-                if contract_info['url_type'] != 'collection':
-                    print(f"⚠️  Not a collection item")
-                    continue
-                    
-                actual_token_id = item_data['actual_token_id']
-                if not actual_token_id:
-                    print(f"⚠️  No token ID found")
-                    continue
-                
-                # Build the actual marketplace URL for the cheapest item
-                if actual_token_id:
-                    item_data['actual_marketplace_url'] = f"https://www.niftygateway.com/marketplace/item/{item_data['contract']}/{actual_token_id}/"
-                    
-                    self.scraped_items.append(item_data)
-                    scraped_count += 1
-                    print(f"✅ Scraped item {scraped_count}: Floor: ${item_data['floor_price']} - Token: #{actual_token_id}")
-                
-                # Brief pause between requests
-                time.sleep(0.5)
-                
-                # Progress update every 10 items
-                if i % 10 == 0:
-                    print(f"\n📈 Progress: {i}/{len(all_collection_urls)} URLs processed, {scraped_count} items scraped")
-                
+                self.driver.get(url)
             except Exception as e:
-                print(f"❌ Error processing {collection_url}: {e}")
-                continue
-        
-        print(f"\n🎉 Scraping completed! Total items with floor prices: {len(self.scraped_items)}")
-        return self.scraped_items
+                print(f"❌ Failed to load page {url}: {e}")
+                return []
+
+            # Wait for initial items to load
+            print("⏳ Waiting for initial items to load...")
+            if not self.wait_for_items_to_load():
+                print("⚠️  Initial items load failed, but continuing...")
+
+            print("\n🔍 Phase 1: Collecting ALL collection URLs with aggressive scrolling...")
+            
+            try:
+                all_collection_urls = self.collect_all_urls_with_scrolling(max_scrolls)
+            except Exception as e:
+                print(f"⚠️  Error during URL collection: {e}")
+                print("🔄 Attempting basic URL collection as fallback...")
+                try:
+                    all_collection_urls = self.get_all_collection_urls_on_page()
+                except Exception as fallback_error:
+                    print(f"❌ Fallback URL collection failed: {fallback_error}")
+                    return []
+            
+            if not all_collection_urls:
+                print("❌ No collection URLs found")
+                return []
+            
+            print(f"📊 Total collection URLs found: {len(all_collection_urls)}")
+            
+            # Limit URLs if max_items specified
+            if max_items > 0 and max_items < len(all_collection_urls):
+                all_collection_urls = all_collection_urls[:max_items]
+                print(f"🎯 Limited to first {max_items} URLs")
+            
+            print(f"\n⚙️ Phase 2: Processing {len(all_collection_urls)} collection URLs...")
+            
+            # Process each URL to get floor price data
+            scraped_count = 0
+            failed_count = 0
+            
+            for i, collection_url in enumerate(all_collection_urls, 1):
+                try:
+                    print(f"\n🔄 Processing {i}/{len(all_collection_urls)}: {collection_url}")
+                    
+                    # Navigate to collection page with retry
+                    navigation_success = False
+                    for retry in range(2):  # Try twice
+                        try:
+                            self.driver.get(collection_url)
+                            time.sleep(1)  # Brief wait for page load
+                            navigation_success = True
+                            break
+                        except Exception as nav_error:
+                            print(f"⚠️  Navigation attempt {retry + 1} failed: {nav_error}")
+                            if retry == 0:
+                                time.sleep(2)  # Wait before retry
+                    
+                    if not navigation_success:
+                        print(f"❌ Failed to navigate to {collection_url} after retries")
+                        failed_count += 1
+                        continue
+                    
+                    # Extract item data with error handling
+                    try:
+                        item_data = self.extract_item_data_from_page(collection_url)
+                    except Exception as extract_error:
+                        print(f"⚠️  Data extraction failed: {extract_error}")
+                        failed_count += 1
+                        continue
+                    
+                    if not item_data:
+                        print(f"❌ Failed to extract data")
+                        failed_count += 1
+                        continue
+                    
+                    if item_data['floor_price'] is None:
+                        print(f"⚠️  No floor price found")
+                        failed_count += 1
+                        continue
+                        
+                    # Check if this is a collection item (we need contract_info for validation)
+                    try:
+                        contract_info = self.extract_contract_and_id(collection_url)
+                        if contract_info['url_type'] != 'collection':
+                            print(f"⚠️  Not a collection item")
+                            failed_count += 1
+                            continue
+                    except Exception as contract_error:
+                        print(f"⚠️  Contract validation failed: {contract_error}")
+                        failed_count += 1
+                        continue
+                        
+                    actual_token_id = item_data['actual_token_id']
+                    if not actual_token_id:
+                        print(f"⚠️  No token ID found")
+                        failed_count += 1
+                        continue
+                    
+                    # Build the actual marketplace URL for the cheapest item
+                    try:
+                        if actual_token_id:
+                            item_data['actual_marketplace_url'] = f"https://www.niftygateway.com/marketplace/item/{item_data['contract']}/{actual_token_id}/"
+                            
+                            self.scraped_items.append(item_data)
+                            scraped_count += 1
+                            print(f"✅ Scraped item {scraped_count}: Floor: ${item_data['floor_price']} - Token: #{actual_token_id}")
+                    except Exception as url_error:
+                        print(f"⚠️  URL construction failed: {url_error}")
+                        failed_count += 1
+                        continue
+                    
+                    # Brief pause between requests
+                    time.sleep(0.5)
+                    
+                    # Progress update every 10 items
+                    if i % 10 == 0:
+                        print(f"\n📈 Progress: {i}/{len(all_collection_urls)} URLs processed, {scraped_count} items scraped, {failed_count} failed")
+                    
+                except KeyboardInterrupt:
+                    print(f"\n⏹️  Scraping interrupted by user")
+                    break
+                except Exception as item_error:
+                    print(f"❌ Unexpected error processing {collection_url}: {item_error}")
+                    failed_count += 1
+                    continue
+            
+            print(f"\n🎉 Scraping completed!")
+            print(f"✅ Successfully scraped: {len(self.scraped_items)} items")
+            print(f"❌ Failed to process: {failed_count} items")
+            print(f"📊 Success rate: {len(self.scraped_items)/(len(all_collection_urls)) * 100:.1f}%")
+            
+            return self.scraped_items
+            
+        except KeyboardInterrupt:
+            print(f"\n⏹️  Scraping interrupted by user")
+            return self.scraped_items
+        except Exception as e:
+            print(f"❌ Critical error in scraping process: {e}")
+            print("🔄 Returning any items scraped so far...")
+            return self.scraped_items
 
     def collect_all_urls_with_scrolling(self, max_scrolls: int = 20) -> List[str]:
         """
@@ -990,75 +1050,137 @@ class NiftyGatewayScraper:
     
     def save_to_csv(self, filename: str = None):
         """Save scraped data to CSV file"""
-        if not filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"nifty_gateway_items_{timestamp}.csv"
-        
-        if self.scraped_items:
-            df = pd.DataFrame(self.scraped_items)
-            df.to_csv(filename, index=False)
-            print(f"Data saved to {filename}")
-        else:
-            print("No data to save")
+        try:
+            if not filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"nifty_gateway_items_{timestamp}.csv"
+            
+            if self.scraped_items:
+                df = pd.DataFrame(self.scraped_items)
+                df.to_csv(filename, index=False)
+                print(f"✅ Data saved to {filename}")
+            else:
+                print("⚠️  No data to save")
+                
+        except Exception as e:
+            print(f"❌ Failed to save CSV file: {e}")
     
     def save_to_json(self, filename: str = None):
         """Save scraped data to JSON file"""
-        if not filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"nifty_gateway_items_{timestamp}.json"
-        
-        if self.scraped_items:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(self.scraped_items, f, indent=2, ensure_ascii=False)
-            print(f"Data saved to {filename}")
-        else:
-            print("No data to save")
+        try:
+            if not filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"nifty_gateway_items_{timestamp}.json"
+            
+            if self.scraped_items:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(self.scraped_items, f, indent=2, ensure_ascii=False)
+                print(f"✅ Data saved to {filename}")
+            else:
+                print("⚠️  No data to save")
+                
+        except Exception as e:
+            print(f"❌ Failed to save JSON file: {e}")
     
     def close(self):
         """Close the browser driver"""
-        if self.driver:
-            self.driver.quit()
+        try:
+            if self.driver:
+                self.driver.quit()
+                print("✅ WebDriver closed successfully")
+        except Exception as e:
+            print(f"⚠️  Error closing WebDriver: {e}")
     
     def __enter__(self):
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+        if exc_type is not None:
+            print(f"⚠️  Exiting due to {exc_type.__name__}: {exc_val}")
+        return False  # Don't suppress exceptions
 
 
 def main():
     """Main function to run the scraper"""
-    # URL for NiftyGateway Art NFTs sorted by most liked
-    url = "https://www.niftygateway.com/explore/nfts/?sort=-likes&chain%5B0%5D=ethereum&categories=Art"
-    
-    # Create scraper instance
-    with NiftyGatewayScraper(headless=False) as scraper:
-        # Scrape items
-        items = scraper.scrape_items(url, max_items=50, max_scrolls=10)
+    try:
+        # URL for NiftyGateway Art NFTs sorted by most liked
+        url = "https://www.niftygateway.com/explore/nfts/?sort=-likes&chain%5B0%5D=ethereum&categories=Art"
         
-        # Save results
-        if items:
-            scraper.save_to_csv()
-            scraper.save_to_json()
-            
-            # Print summary
-            print(f"\n=== SCRAPING SUMMARY ===")
-            print(f"Total items scraped: {len(items)}")
-            print(f"Items with floor prices: {len([item for item in items if item['floor_price']])}")
-            
-            # Show first few items
-            print(f"\n=== FIRST 5 ITEMS ===")
-            for i, item in enumerate(items[:5], 1):
-                print(f"{i}. {item['title']}")
-                print(f"   Creator: {item['creator']}")
-                print(f"   Floor Price: ${item['floor_price']}")
-                print(f"   Contract: {item['contract']}")
-                print(f"   Token ID: {item['token_id']}")
-                print(f"   URL: {item['marketplace_url']}")
-                print()
-        else:
-            print("No items were scraped")
+        print("🚀 Starting NiftyGateway scraper...")
+        
+        # Create scraper instance
+        with NiftyGatewayScraper(headless=False) as scraper:
+            try:
+                # Scrape items
+                items = scraper.scrape_items(url, max_items=50, max_scrolls=10)
+                
+                # Save results
+                if items:
+                    try:
+                        scraper.save_to_csv()
+                        scraper.save_to_json()
+                        
+                        # Print summary
+                        print(f"\n=== SCRAPING SUMMARY ===")
+                        print(f"Total items scraped: {len(items)}")
+                        print(f"Items with floor prices: {len([item for item in items if item.get('floor_price')])}")
+                        
+                        # Show first few items
+                        print(f"\n=== FIRST 3 ITEMS ===")
+                        for i, item in enumerate(items[:3], 1):
+                            print(f"{i}. Floor Price: ${item.get('floor_price', 'N/A')}")
+                            print(f"   Contract: {item.get('contract', 'N/A')}")
+                            print(f"   Token ID: {item.get('actual_token_id', 'N/A')}")
+                            print(f"   URL: {item.get('marketplace_url', 'N/A')}")
+                            print()
+                            
+                    except Exception as save_error:
+                        print(f"⚠️  Error saving results: {save_error}")
+                        print("📊 Scraped data still available in memory")
+                        
+                else:
+                    print("⚠️  No items were scraped")
+                    
+            except KeyboardInterrupt:
+                print(f"\n⏹️  Scraping interrupted by user")
+                print(f"📊 Scraped {len(scraper.scraped_items)} items before interruption")
+                
+                if scraper.scraped_items:
+                    try:
+                        scraper.save_to_csv()
+                        scraper.save_to_json()
+                        print("✅ Partial results saved")
+                    except Exception as save_error:
+                        print(f"⚠️  Could not save partial results: {save_error}")
+                        
+            except Exception as scrape_error:
+                print(f"❌ Error during scraping: {scrape_error}")
+                print(f"📊 Scraped {len(scraper.scraped_items)} items before error")
+                
+                if scraper.scraped_items:
+                    try:
+                        scraper.save_to_csv()
+                        scraper.save_to_json()
+                        print("✅ Partial results saved")
+                    except Exception as save_error:
+                        print(f"⚠️  Could not save partial results: {save_error}")
+                        
+    except Exception as main_error:
+        print(f"❌ Critical error in main function: {main_error}")
+        print("🔄 Please check your setup and try again")
+    
+    finally:
+        print("\n🏁 Scraper execution completed")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\n⏹️  Program interrupted by user")
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        print("🔄 Please report this issue if it persists")
+    finally:
+        print("👋 Goodbye!")

@@ -14,7 +14,7 @@ import config
 def main():
     parser = argparse.ArgumentParser(description='NiftyGateway NFT Scraper')
     parser.add_argument('--max-items', type=int, default=1000, 
-                       help='Maximum number of items to scrape (default: 1000)')
+                       help='Maximum number of items to scrape (0 = unlimited, default: 1000)')
     parser.add_argument('--headless', action='store_true', 
                        help='Run browser in headless mode (recommended for production)')
     parser.add_argument('--output-dir', type=str, default='.', 
@@ -31,7 +31,7 @@ def main():
     NiftyGateway NFT Production Scraper
 ==========================================================
 Configuration:
-  Max items: {args.max_items}
+  Max items: {'Unlimited' if args.max_items == 0 else args.max_items}
   Headless mode: {args.headless}
   Output directory: {args.output_dir}
   Starting URL: {args.start_url}
@@ -49,9 +49,10 @@ Configuration:
         print(f"Starting scrape at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Run the scraper
+        max_items_to_use = None if args.max_items == 0 else args.max_items
         scraped_items = scraper.scrape_items(
             url=args.start_url,
-            max_items=args.max_items,
+            max_items=max_items_to_use or 999999,  # Use large number if unlimited
             max_scrolls=args.max_scrolls
         )
         
@@ -86,11 +87,10 @@ Results:
             print("Sample of scraped data:")
             for i, item in enumerate(scraped_items[:3]):
                 print(f"\nItem {i+1}:")
-                print(f"  Title: {item['title']}")
-                print(f"  Creator: {item['creator']}")
-                print(f"  Floor Price: ${item['floor_price']}")
-                print(f"  Token ID: #{item['actual_token_id']}")
-                print(f"  Contract: {item['contract']}")
+                print(f"  Floor Price: ${item.get('floor_price', 'N/A')}")
+                print(f"  Token ID: #{item.get('actual_token_id', 'N/A')}")
+                print(f"  Contract: {item.get('contract', 'N/A')}")
+                print(f"  Collection URL: {item.get('marketplace_url', 'N/A')}")
         
         else:
             print("No items were scraped. Please check the configuration and try again.")
