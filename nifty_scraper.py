@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
@@ -114,7 +115,7 @@ class NiftyGatewayScraper:
     
     def scroll_to_load_more(self, scroll_pause_time: float = 2.0) -> bool:
         """
-        Scroll down to trigger loading of more items
+        Scroll down to trigger loading of more items with multiple strategies
         
         Args:
             scroll_pause_time: Time to wait after scrolling
@@ -122,19 +123,190 @@ class NiftyGatewayScraper:
         Returns:
             True if more content was loaded, False otherwise
         """
-        # Get current page height
-        last_height = self.driver.execute_script("return document.body.scrollHeight")
+        try:
+            # Count current items before scrolling
+            initial_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+            items_before = len(initial_items)
+            print(f"Items before scroll: {items_before}")
+            
+            # Strategy 1: Multiple small scrolls to simulate user behavior
+            for scroll_step in range(5):
+                current_position = self.driver.execute_script("return window.pageYOffset")
+                scroll_amount = 800  # Smaller scroll amounts
+                self.driver.execute_script(f"window.scrollTo(0, {current_position + scroll_amount});")
+                time.sleep(0.5)  # Short pause between scrolls
+                
+                # Check for new items after each small scroll
+                current_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+                if len(current_items) > items_before:
+                    print(f"Found {len(current_items) - items_before} new items after small scroll {scroll_step + 1}")
+                    return True
+            
+            # Strategy 2: Scroll to specific percentages of page
+            page_height = self.driver.execute_script("return document.body.scrollHeight")
+            for percentage in [0.25, 0.5, 0.75, 1.0]:
+                target_position = int(page_height * percentage)
+                self.driver.execute_script(f"window.scrollTo(0, {target_position});")
+                time.sleep(2)
+                
+                current_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+                if len(current_items) > items_before:
+                    print(f"Found {len(current_items) - items_before} new items after scrolling to {percentage*100}%")
+                    return True
+            
+            # Strategy 3: Use keyboard navigation
+            try:
+                body = self.driver.find_element(By.TAG_NAME, "body")
+                for i in range(10):
+                    body.send_keys(Keys.PAGE_DOWN)
+                    time.sleep(0.3)
+                    
+                    current_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+                    if len(current_items) > items_before:
+                        print(f"Found {len(current_items) - items_before} new items after PAGE_DOWN {i + 1}")
+                        return True
+            except Exception as e:
+                print(f"Keyboard navigation failed: {e}")
+            
+            # Strategy 4: Try to find and click a "Load More" button
+            try:
+                load_more_selectors = [
+                    "button[data-testid='load-more']",
+                    "button:contains('Load More')",
+                    "button:contains('Show More')",
+                    "[data-testid='load-more-button']",
+                    ".load-more",
+                    "button[class*='load']",
+                    "button[class*='more']"
+                ]
+                
+                for selector in load_more_selectors:
+                    try:
+                        if ":contains(" in selector:
+                            # Use XPath for text-based selection
+                            xpath_selector = f"//button[contains(text(), 'Load More') or contains(text(), 'Show More')]"
+                            load_button = self.driver.find_element(By.XPATH, xpath_selector)
+                        else:
+                            load_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        
+                        if load_button.is_displayed() and load_button.is_enabled():
+                            self.driver.execute_script("arguments[0].click();", load_button)
+                            time.sleep(3)
+                            
+                            current_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+                            if len(current_items) > items_before:
+                                print(f"Found {len(current_items) - items_before} new items after clicking load more button")
+                                return True
+                    except:
+                        continue
+            except Exception as e:
+                print(f"Load more button search failed: {e}")
+            
+            # Strategy 5: Aggressive scrolling with longer waits
+            print("Trying aggressive scrolling...")
+            for attempt in range(3):
+                # Scroll to bottom
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(5)  # Longer wait
+                
+                # Check for new content
+                new_height = self.driver.execute_script("return document.body.scrollHeight")
+                current_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+                
+                if len(current_items) > items_before:
+                    print(f"Found {len(current_items) - items_before} new items after aggressive scroll {attempt + 1}")
+                    return True
+                
+                # Try scrolling past the bottom
+                self.driver.execute_script(f"window.scrollTo(0, {new_height + 1000});")
+                time.sleep(3)
+                
+                final_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+                if len(final_items) > items_before:
+                    print(f"Found {len(final_items) - items_before} new items after over-scroll")
+                    return True
+            
+            # Final check
+            final_items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+            items_after = len(final_items)
+            
+            if items_after > items_before:
+                print(f"Scroll successful: {items_after - items_before} new items found")
+                return True
+            else:
+                print(f"No new content found after all strategies. Items: {items_before} -> {items_after}")
+                return False
+                
+        except Exception as e:
+            print(f"Error during scrolling: {e}")
+            return False
+    
+    def wait_for_items_to_load(self, timeout: int = 10) -> bool:
+        """
+        Wait for items to load on the page
         
-        # Scroll down to bottom
-        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        Args:
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            True if items loaded, False if timeout
+        """
+        try:
+            print("Waiting for items to load...")
+            
+            # Wait for at least some items to appear
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
+            # Wait for marketplace collection links to appear
+            wait = WebDriverWait(self.driver, timeout)
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "[href*='/marketplace/collection/']")))
+            
+            # Give extra time for all items to load
+            time.sleep(2)
+            
+            items = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+            print(f"Found {len(items)} items after waiting")
+            
+            return len(items) > 0
+            
+        except Exception as e:
+            print(f"Error waiting for items: {e}")
+            return False
+
+    def get_all_collection_urls(self) -> List[str]:
+        """
+        Get all collection URLs from the current page
         
-        # Wait for new content to load
-        time.sleep(scroll_pause_time)
-        
-        # Calculate new scroll height and compare with last scroll height
-        new_height = self.driver.execute_script("return document.body.scrollHeight")
-        
-        return new_height > last_height
+        Returns:
+            List of unique collection URLs
+        """
+        try:
+            # Wait for items to load first
+            self.wait_for_items_to_load()
+            
+            # Get all collection links
+            collection_links = self.driver.find_elements(By.CSS_SELECTOR, "[href*='/marketplace/collection/']")
+            
+            urls = []
+            for link in collection_links:
+                try:
+                    href = link.get_attribute('href')
+                    if href and '/marketplace/collection/' in href:
+                        # Normalize URL (remove query params, fragments)
+                        base_url = href.split('?')[0].split('#')[0]
+                        if base_url not in urls:
+                            urls.append(base_url)
+                except Exception as e:
+                    print(f"Error getting href from link: {e}")
+                    continue
+            
+            print(f"Found {len(urls)} unique collection URLs")
+            return urls
+            
+        except Exception as e:
+            print(f"Error getting collection URLs: {e}")
+            return []
     
     def extract_item_data_from_page(self, item_url: str) -> Optional[Dict]:
         """
@@ -201,15 +373,10 @@ class NiftyGatewayScraper:
                         pass
             
             return {
-                'title': title,
-                'creator': creator,
                 'floor_price': floor_price,
                 'floor_price_text': floor_price_text,
-                'item_count': item_count,
                 'contract': contract_info['contract'],
-                'token_id': contract_info['token_id'],
                 'actual_token_id': actual_token_id,
-                'url_type': contract_info['url_type'],
                 'marketplace_url': item_url,
                 'actual_marketplace_url': None,
                 'scraped_at': datetime.now().isoformat()
@@ -574,7 +741,9 @@ class NiftyGatewayScraper:
     
     def scrape_items(self, url: str, max_items: int = 100, max_scrolls: int = 20) -> List[Dict]:
         """
-        Scrape NFT items from NiftyGateway
+        Scrape NFT items from NiftyGateway using two-phase approach:
+        Phase 1: Collect ALL collection URLs by scrolling
+        Phase 2: Process each URL to extract floor price data
         
         Args:
             url: NiftyGateway URL to scrape
@@ -594,146 +763,230 @@ class NiftyGatewayScraper:
         if not self.wait_for_items_to_load():
             print("Failed to load initial items")
             return []
+
+        print("\n🔍 Phase 1: Collecting ALL collection URLs with aggressive scrolling...")
+        all_collection_urls = self.collect_all_urls_with_scrolling(max_scrolls)
         
-        print("Initial items loaded, starting to scrape...")
+        if not all_collection_urls:
+            print("❌ No collection URLs found")
+            return []
         
+        print(f"📊 Total collection URLs found: {len(all_collection_urls)}")
+        
+        # Limit URLs if max_items specified
+        if max_items > 0 and max_items < len(all_collection_urls):
+            all_collection_urls = all_collection_urls[:max_items]
+            print(f"🎯 Limited to first {max_items} URLs")
+        
+        print(f"\n⚙️ Phase 2: Processing {len(all_collection_urls)} collection URLs...")
+        
+        # Process each URL to get floor price data
         scraped_count = 0
-        scroll_count = 0
-        last_item_count = 0
-        no_new_items_count = 0
+        for i, collection_url in enumerate(all_collection_urls, 1):
+            try:
+                print(f"\n🔄 Processing {i}/{len(all_collection_urls)}: {collection_url}")
+                
+                # Navigate to collection page
+                self.driver.get(collection_url)
+                time.sleep(1)  # Brief wait for page load
+                
+                # Extract item data
+                item_data = self.extract_item_data_from_page(collection_url)
+                
+                if not item_data:
+                    print(f"❌ Failed to extract data")
+                    continue
+                
+                if item_data['floor_price'] is None:
+                    print(f"⚠️  No floor price found")
+                    continue
+                    
+                # Check if this is a collection item (we need contract_info for validation)
+                contract_info = self.extract_contract_and_id(collection_url)
+                if contract_info['url_type'] != 'collection':
+                    print(f"⚠️  Not a collection item")
+                    continue
+                    
+                actual_token_id = item_data['actual_token_id']
+                if not actual_token_id:
+                    print(f"⚠️  No token ID found")
+                    continue
+                
+                # Build the actual marketplace URL for the cheapest item
+                if actual_token_id:
+                    item_data['actual_marketplace_url'] = f"https://www.niftygateway.com/marketplace/item/{item_data['contract']}/{actual_token_id}/"
+                    
+                    self.scraped_items.append(item_data)
+                    scraped_count += 1
+                    print(f"✅ Scraped item {scraped_count}: Floor: ${item_data['floor_price']} - Token: #{actual_token_id}")
+                
+                # Brief pause between requests
+                time.sleep(0.5)
+                
+                # Progress update every 10 items
+                if i % 10 == 0:
+                    print(f"\n📈 Progress: {i}/{len(all_collection_urls)} URLs processed, {scraped_count} items scraped")
+                
+            except Exception as e:
+                print(f"❌ Error processing {collection_url}: {e}")
+                continue
         
-        while scraped_count < max_items and scroll_count < max_scrolls:
-            # Find all item elements - combine all selectors to get both collectible and collection items
-            all_items = []
+        print(f"\n🎉 Scraping completed! Total items with floor prices: {len(self.scraped_items)}")
+        return self.scraped_items
+
+    def collect_all_urls_with_scrolling(self, max_scrolls: int = 20) -> List[str]:
+        """
+        Aggressively collect ALL collection URLs by scrolling until no more content loads
+        
+        Args:
+            max_scrolls: Maximum scroll attempts
             
-            # Try each selector and combine results - only get collection items
-            item_selectors = [
-                "[href*='/marketplace/collection/']",  # Only collection items, not collectibles
-                "[data-testid='nft-card']",
-                ".marketplace-item",
-                "a[href*='/marketplace/collection/']"  # Only collection items
+        Returns:
+            List of all unique collection URLs found
+        """
+        all_urls = set()
+        scroll_attempts = 0
+        consecutive_no_new = 0
+        
+        try:
+            print("🔄 Starting aggressive URL collection...")
+            
+            # Initial collection
+            initial_urls = self.get_all_collection_urls_on_page()
+            all_urls.update(initial_urls)
+            print(f"📦 Initial load: {len(initial_urls)} URLs")
+            
+            while scroll_attempts < max_scrolls and consecutive_no_new < 3:
+                print(f"\n📜 Scroll attempt {scroll_attempts + 1}/{max_scrolls}")
+                
+                urls_before = len(all_urls)
+                
+                # Try multiple scrolling strategies in sequence
+                scroll_success = False
+                
+                # Strategy 1: Scroll to bottom and wait
+                print("  📍 Strategy 1: Scroll to bottom")
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(3)
+                
+                current_urls = self.get_all_collection_urls_on_page()
+                new_urls_count = len(set(current_urls) - all_urls)
+                all_urls.update(current_urls)
+                
+                if new_urls_count > 0:
+                    print(f"    ✅ Found {new_urls_count} new URLs")
+                    scroll_success = True
+                else:
+                    # Strategy 2: Multiple small scrolls
+                    print("  📍 Strategy 2: Progressive scrolling")
+                    current_position = self.driver.execute_script("return window.pageYOffset")
+                    
+                    for step in range(5):
+                        scroll_amount = 1000 + (step * 500)
+                        new_position = current_position + scroll_amount
+                        self.driver.execute_script(f"window.scrollTo(0, {new_position});")
+                        time.sleep(1)
+                        
+                        step_urls = self.get_all_collection_urls_on_page()
+                        step_new_count = len(set(step_urls) - all_urls)
+                        all_urls.update(step_urls)
+                        
+                        if step_new_count > 0:
+                            print(f"    ✅ Found {step_new_count} new URLs at position {new_position}")
+                            scroll_success = True
+                            break
+                
+                # Strategy 3: Page down keys if other methods fail
+                if not scroll_success:
+                    print("  📍 Strategy 3: Keyboard navigation")
+                    try:
+                        body = self.driver.find_element(By.TAG_NAME, "body")
+                        for key_attempt in range(10):
+                            body.send_keys(Keys.PAGE_DOWN)
+                            time.sleep(0.5)
+                            
+                            key_urls = self.get_all_collection_urls_on_page()
+                            key_new_count = len(set(key_urls) - all_urls)
+                            all_urls.update(key_urls)
+                            
+                            if key_new_count > 0:
+                                print(f"    ✅ Found {key_new_count} new URLs with PAGE_DOWN")
+                                scroll_success = True
+                                break
+                    except Exception as e:
+                        print(f"    ❌ Keyboard navigation failed: {e}")
+                
+                urls_after = len(all_urls)
+                total_new = urls_after - urls_before
+                
+                if total_new > 0:
+                    print(f"🔥 Total new URLs this round: {total_new} (Total: {urls_after})")
+                    consecutive_no_new = 0
+                else:
+                    consecutive_no_new += 1
+                    print(f"⚠️  No new URLs found ({consecutive_no_new}/3 strikes)")
+                
+                scroll_attempts += 1
+                
+                # Brief pause between scroll attempts
+                time.sleep(1)
+            
+            # Final collection attempt
+            print("\n🔍 Final URL sweep...")
+            final_urls = self.get_all_collection_urls_on_page()
+            final_new = len(set(final_urls) - all_urls)
+            all_urls.update(final_urls)
+            
+            if final_new > 0:
+                print(f"📦 Final sweep found {final_new} additional URLs")
+            
+            total_found = len(all_urls)
+            print(f"\n📊 URL Collection Complete: {total_found} unique collection URLs found")
+            return list(all_urls)
+            
+        except Exception as e:
+            print(f"❌ Error during URL collection: {e}")
+            return list(all_urls)
+
+    def get_all_collection_urls_on_page(self) -> List[str]:
+        """
+        Get all collection URLs currently visible on the page
+        
+        Returns:
+            List of unique collection URLs
+        """
+        try:
+            # Get all collection links with multiple selectors
+            collection_links = []
+            
+            selectors = [
+                "[href*='/marketplace/collection/']",
+                "a[href*='/marketplace/collection/']"
             ]
             
-            for selector in item_selectors:
+            for selector in selectors:
                 try:
-                    found_items = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    if found_items:
-                        # Filter to only include collection marketplace links (not collectibles)
-                        marketplace_items = [item for item in found_items 
-                                           if item.get_attribute('href') and '/marketplace/collection/' in item.get_attribute('href')]
-                        all_items.extend(marketplace_items)
-                except NoSuchElementException:
+                    found_links = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    collection_links.extend(found_links)
+                except:
                     continue
             
-            # Remove duplicates while preserving order
-            seen_urls = set()
-            items = []
-            for item in all_items:
-                url = item.get_attribute('href')
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    items.append(item)
-            
-            if not items:
-                print("No items found on page")
-                break
-            
-            # Count only collection items for debugging
-            collection_count = sum(1 for item in items if '/collection/' in item.get_attribute('href'))
-            print(f"Found {len(items)} collection items")
-            
-            # First pass: collect all URLs and basic data to avoid stale element issues
-            items_to_process = []
-            for i, item in enumerate(items[last_item_count:], last_item_count + 1):
-                if scraped_count >= max_items:
-                    break
-                
+            urls = set()
+            for link in collection_links:
                 try:
-                    # Get URL immediately to avoid stale element issues
-                    item_url = item.get_attribute('href')
-                    if not item_url or '/marketplace/collection/' not in item_url:
-                        continue
-                    
-                    # Check if we already processed this URL
-                    duplicate = False
-                    for existing_item in self.scraped_items:
-                        if existing_item['marketplace_url'] == item_url:
-                            duplicate = True
-                            break
-                    
-                    if not duplicate:
-                        items_to_process.append(item_url)
-                        
-                except Exception as e:
-                    print(f"Error getting URL from item {i}: {str(e)}")
+                    href = link.get_attribute('href')
+                    if href and '/marketplace/collection/' in href:
+                        # Normalize URL (remove query params, fragments)
+                        base_url = href.split('?')[0].split('#')[0]
+                        urls.add(base_url)
+                except:
                     continue
             
-            print(f"Found {len(items_to_process)} new collection URLs to process")
+            return list(urls)
             
-            # Second pass: process each URL by navigating to it
-            new_items_count = 0
-            for item_url in items_to_process:
-                if scraped_count >= max_items:
-                    break
-                    
-                try:
-                    print(f"Processing collection: {item_url}")
-                    
-                    # Navigate to the collection page first
-                    self.driver.get(item_url)
-                    time.sleep(1)  # Reduced from 2 to 1 second
-                    
-                    # Extract basic item data from this page
-                    item_data = self.extract_item_data_from_page(item_url)
-                    
-                    # Only process items that have a floor price and are collection items
-                    if (item_data and 
-                        item_data['floor_price'] is not None and 
-                        item_data['url_type'] == 'collection'):
-                        
-                        # The token ID and price are already extracted in extract_item_data_from_page
-                        actual_token_id = item_data['actual_token_id']
-                        
-                        if actual_token_id:
-                            item_data['actual_marketplace_url'] = f"https://www.niftygateway.com/marketplace/item/{item_data['contract']}/{actual_token_id}/"
-                            
-                            self.scraped_items.append(item_data)
-                            new_items_count += 1
-                            scraped_count += 1
-                            print(f"✅ Scraped item {scraped_count}: {item_data['title'][:30]}... - Floor: ${item_data['floor_price']} - Token: #{actual_token_id}")
-                        
-                        # Add delay to prevent IP blocking - reduced from 2 to 1 second
-                        time.sleep(1)
-                    
-                except Exception as e:
-                    continue
-            
-            # Go back to the main listings page for next scroll
-            if new_items_count > 0 or scroll_count == 0:
-                self.driver.get(url)
-                time.sleep(1)  # Reduced from 2 to 1 second
-            
-            # Check if we got new items
-            if new_items_count == 0:
-                no_new_items_count += 1
-                if no_new_items_count >= 3:
-                    break
-            else:
-                no_new_items_count = 0
-            
-            last_item_count = len(items)
-            
-            # Scroll to load more items
-            if not self.scroll_to_load_more():
-                break
-                
-            scroll_count += 1
-            
-            # Wait a bit for new content
-            time.sleep(0.5)  # Reduced from 1 to 0.5 seconds
-        
-        print(f"Scraping completed. Total items with floor prices: {len(self.scraped_items)}")
-        return self.scraped_items
+        except Exception as e:
+            print(f"Error getting collection URLs: {e}")
+            return []
     
     def save_to_csv(self, filename: str = None):
         """Save scraped data to CSV file"""
