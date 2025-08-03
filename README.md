@@ -1,10 +1,10 @@
 # NiftyGateway NFT Floor Price Scraper
 
-A comprehensive Python-based web scraper designed to extract floor price data from NiftyGateway's marketplace for arbitrage analysis between NiftyGateway and OpenSea.
+A comprehensive Python-based web scraper designed to extract floor price data from NiftyGateway's marketplace.
 
 ## 🎯 Purpose
 
-This scraper was built to **compare floor listing prices on NiftyGateway with top bids on OpenSea** to identify arbitrage opportunities in the NFT marketplace.
+This scraper was built to **pull floor listing prices on NiftyGateway**
 
 ## ✨ Features
 
@@ -143,19 +143,6 @@ niftyscraper/
 - **Human-like Scrolling**: Multiple small scrolls to simulate user behavior
 - **Random Delays**: Variable wait times between requests
 - **Standard User Agent**: Mimics regular Chrome browser
-
-## 🎯 Use Cases
-
-### Primary: Arbitrage Analysis
-Compare NiftyGateway floor prices with OpenSea bid data to identify:
-- **Underpriced listings** on NiftyGateway
-- **High bid opportunities** on OpenSea
-- **Market inefficiencies** between platforms
-
-### Secondary: Market Research
-- **Floor price tracking** over time
-- **Collection popularity analysis**
-- **Market trend identification**
 
 ## 📊 Sample Output Files
 
