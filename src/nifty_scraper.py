@@ -26,7 +26,7 @@ except ImportError:
 
 
 class NiftyGatewayScraper:
-    def __init__(self, headless: bool = False, enable_opensea_enrichment: bool = True, enable_arbitrage_analysis: bool = True):
+    def __init__(self, headless: bool = False, enable_opensea_enrichment: bool = True, enable_arbitrage_analysis: bool = True, arbitrage_callback=None):
         """
         Initialize the NiftyGateway scraper
         
@@ -34,6 +34,7 @@ class NiftyGatewayScraper:
             headless: Whether to run browser in headless mode
             enable_opensea_enrichment: Whether to enrich items with OpenSea collection data
             enable_arbitrage_analysis: Whether to analyze arbitrage opportunities
+            arbitrage_callback: Optional callback function for real-time arbitrage notifications
         """
         self.driver = None
         self.headless = headless
@@ -46,6 +47,7 @@ class NiftyGatewayScraper:
         # Arbitrage analysis
         self.enable_arbitrage_analysis = enable_arbitrage_analysis
         self.offers_client = None
+        self.arbitrage_callback = arbitrage_callback
         
         if self.enable_opensea_enrichment and OpenSeaAPIClient:
             try:
@@ -921,6 +923,17 @@ class NiftyGatewayScraper:
                                 try:
                                     print(f"💎 Analyzing arbitrage opportunity...")
                                     item_data = self.offers_client.enrich_item_with_arbitrage_data(item_data)
+                                    
+                                    # Fire real-time callback for arbitrage opportunities
+                                    if (self.arbitrage_callback and 
+                                        item_data.get('arbitrage_flag') and 
+                                        item_data.get('arbitrage_flag') != "⚫ NO_OFFER"):
+                                        try:
+                                            self.arbitrage_callback(item_data)
+                                            print(f"🔥 Real-time arbitrage alert sent: {item_data.get('arbitrage_flag')}")
+                                        except Exception as callback_error:
+                                            print(f"⚠️  Callback failed: {callback_error}")
+                                            
                                 except Exception as arbitrage_error:
                                     print(f"⚠️  Arbitrage analysis failed: {arbitrage_error}")
                                     # Continue without arbitrage data
