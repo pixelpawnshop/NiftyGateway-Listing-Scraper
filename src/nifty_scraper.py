@@ -16,18 +16,58 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
 
+# Import OpenSea API client and offers client
+try:
+    from opensea_client import OpenSeaAPIClient
+    from opensea_offers_client import OpenSeaOffersClient
+except ImportError:
+    OpenSeaAPIClient = None
+    OpenSeaOffersClient = None
+
 
 class NiftyGatewayScraper:
-    def __init__(self, headless: bool = False):
+    def __init__(self, headless: bool = False, enable_opensea_enrichment: bool = True, enable_arbitrage_analysis: bool = True):
         """
         Initialize the NiftyGateway scraper
         
         Args:
             headless: Whether to run browser in headless mode
+            enable_opensea_enrichment: Whether to enrich items with OpenSea collection data
+            enable_arbitrage_analysis: Whether to analyze arbitrage opportunities
         """
         self.driver = None
         self.headless = headless
         self.scraped_items = []
+        
+        # OpenSea enrichment
+        self.enable_opensea_enrichment = enable_opensea_enrichment
+        self.opensea_client = None
+        
+        # Arbitrage analysis
+        self.enable_arbitrage_analysis = enable_arbitrage_analysis
+        self.offers_client = None
+        
+        if self.enable_opensea_enrichment and OpenSeaAPIClient:
+            try:
+                self.opensea_client = OpenSeaAPIClient()
+                print("🔗 OpenSea enrichment enabled")
+            except Exception as e:
+                print(f"⚠️  Failed to initialize OpenSea client: {e}")
+                self.enable_opensea_enrichment = False
+        elif self.enable_opensea_enrichment and not OpenSeaAPIClient:
+            print("⚠️  OpenSea client not available, enrichment disabled")
+            self.enable_opensea_enrichment = False
+        
+        if self.enable_arbitrage_analysis and OpenSeaOffersClient:
+            try:
+                self.offers_client = OpenSeaOffersClient()
+                print("💎 Arbitrage analysis enabled")
+            except Exception as e:
+                print(f"⚠️  Failed to initialize OpenSea offers client: {e}")
+                self.enable_arbitrage_analysis = False
+        elif self.enable_arbitrage_analysis and not OpenSeaOffersClient:
+            print("⚠️  OpenSea offers client not available, arbitrage analysis disabled")
+            self.enable_arbitrage_analysis = False
         
     def setup_driver(self):
         """Set up Chrome WebDriver with options"""
@@ -343,21 +383,27 @@ class NiftyGatewayScraper:
                 print(f"⚠️  Table data extraction failed: {e}")
                 table_data = None
             
+            # If no table data found (no listing available), skip this item
+            if not table_data:
+                print(f"⚠️  No listing data found for {item_url}, skipping item")
+                return None
+            
             floor_price = None
             floor_price_text = ""
-            actual_token_id = None
+            actual_token_id = table_data.get('token_id')
+            list_price_str = table_data.get('list_price')
             
-            if table_data:
-                actual_token_id = table_data.get('token_id')
-                list_price_str = table_data.get('list_price')
-                
-                if list_price_str:
-                    try:
-                        floor_price = float(list_price_str)
-                        floor_price_text = f"${list_price_str} (Table List Price)"
-                    except (ValueError, TypeError) as e:
-                        print(f"⚠️  Price conversion failed: {e}")
-                        pass
+            # If no list price found, skip this item
+            if not list_price_str:
+                print(f"⚠️  No list price found for {item_url}, skipping item")
+                return None
+            
+            try:
+                floor_price = float(list_price_str)
+                floor_price_text = f"${list_price_str} (Table List Price)"
+            except (ValueError, TypeError) as e:
+                print(f"⚠️  Price conversion failed: {e}")
+                return None
             
             return {
                 'floor_price': floor_price,
@@ -467,13 +513,14 @@ class NiftyGatewayScraper:
                 except Exception as e:
                     pass
             
-            # Extract list price from the table row - specifically from List Price column
+            # Extract list price from the table row - ONLY from List Price column
             try:
                 # Get all table cells in this row
                 cells = cheapest_item.find_elements(By.CSS_SELECTOR, "td, .MuiTableCell-root, [class*='MuiTableCell']")
                 
                 # Look for the List Price column specifically
                 list_price = None
+                list_price_found = False
                 
                 # Method 1: Try to find List Price column by looking at header structure
                 try:
@@ -489,52 +536,55 @@ class NiftyGatewayScraper:
                     
                     if list_price_column_index is not None and list_price_column_index < len(cells):
                         list_price_cell = cells[list_price_column_index]
-                        price_match = re.search(r'\$([0-9,]+\.?[0-9]*)', list_price_cell.text)
+                        list_price_text = list_price_cell.text.strip()
+                        
+                        # Check if the List Price column shows "--" or empty (no listing)
+                        if list_price_text in ['--', '-', '', 'N/A', 'n/a']:
+                            print(f"No listing found for token {token_id} (List Price shows: '{list_price_text}'), skipping item")
+                            return None  # Skip this item - no listing available
+                        
+                        # Extract price only from List Price column
+                        price_match = re.search(r'\$([0-9,]+\.?[0-9]*)', list_price_text)
                         if price_match:
                             list_price = price_match.group(1).replace(',', '')
+                            list_price_found = True
                             
                 except Exception:
                     pass
                 
-                # Method 2: If we couldn't find by header, look for the rightmost price (usually List Price)
-                if not list_price:
-                    prices_found = []
-                    for cell in cells:
+                # Method 2: If we couldn't find by header, try to identify List Price column by position
+                # Look for the rightmost column that contains prices (usually List Price)
+                if not list_price_found:
+                    # Check each cell for the List Price pattern
+                    for i, cell in enumerate(cells):
                         cell_text = cell.text.strip()
-                        price_match = re.search(r'\$([0-9,]+\.?[0-9]*)', cell_text)
-                        if price_match:
-                            prices_found.append((price_match.group(1).replace(',', ''), cell_text))
-                    
-                    # Take the last price found (rightmost column, which is usually List Price)
-                    if prices_found:
-                        list_price = prices_found[-1][0]
-                
-                # Method 3: Fallback - look for specific patterns that indicate list price
-                if not list_price:
-                    row_text = cheapest_item.text
-                    # Look for price that's NOT associated with "Last Sale" or sale dates
-                    lines = row_text.split('\n')
-                    for line in lines:
-                        if ('$' in line and 
-                            'last sale' not in line.lower() and 
-                            'sale time' not in line.lower() and
-                            'dec ' not in line.lower() and  # Avoid sale dates
-                            'jan ' not in line.lower() and
-                            'feb ' not in line.lower() and
-                            'mar ' not in line.lower() and
-                            'apr ' not in line.lower() and
-                            'may ' not in line.lower() and
-                            'jun ' not in line.lower() and
-                            'jul ' not in line.lower() and
-                            'aug ' not in line.lower() and
-                            'sep ' not in line.lower() and
-                            'oct ' not in line.lower() and
-                            'nov ' not in line.lower()):
+                        
+                        # Check if this cell shows "--" (no listing)
+                        if cell_text in ['--', '-', '', 'N/A', 'n/a'] and i >= len(cells) - 2:  # Last 2 columns are typically Last Sale and List Price
+                            # This might be the List Price column showing no listing
+                            continue
+                        
+                        # If this cell contains a price and is in the rightmost columns
+                        if re.search(r'\$([0-9,]+\.?[0-9]*)', cell_text) and i >= len(cells) - 2:
+                            # Check if the next column (if exists) shows "--" which would indicate this is Last Sale, not List Price
+                            if i + 1 < len(cells):
+                                next_cell_text = cells[i + 1].text.strip()
+                                if next_cell_text in ['--', '-', '', 'N/A', 'n/a']:
+                                    print(f"Found Last Sale price but List Price shows '{next_cell_text}' (no listing), skipping item")
+                                    return None  # No listing available
                             
-                            price_match = re.search(r'\$([0-9,]+\.?[0-9]*)', line)
+                            # This appears to be a valid list price
+                            price_match = re.search(r'\$([0-9,]+\.?[0-9]*)', cell_text)
                             if price_match:
                                 list_price = price_match.group(1).replace(',', '')
+                                list_price_found = True
                                 break
+                
+                # If we still haven't found a confirmed List Price, skip this item
+                # We don't want to accidentally pick up Last Sale prices
+                if not list_price_found:
+                    print(f"Could not find valid List Price for token {token_id}, skipping item")
+                    return None
                     
             except Exception as e:
                 pass
@@ -856,9 +906,54 @@ class NiftyGatewayScraper:
                         if actual_token_id:
                             item_data['actual_marketplace_url'] = f"https://www.niftygateway.com/marketplace/item/{item_data['contract']}/{actual_token_id}/"
                             
-                            self.scraped_items.append(item_data)
-                            scraped_count += 1
-                            print(f"✅ Scraped item {scraped_count}: Floor: ${item_data['floor_price']} - Token: #{actual_token_id}")
+                            # Enrich with OpenSea collection data if enabled
+                            if self.enable_opensea_enrichment and self.opensea_client:
+                                try:
+                                    print(f"🔗 Enriching item with OpenSea data...")
+                                    item_data = self.opensea_client.enrich_item_with_collection_info(item_data)
+                                except Exception as opensea_error:
+                                    print(f"⚠️  OpenSea enrichment failed: {opensea_error}")
+                                    # Continue without enrichment
+                            
+                            # Analyze arbitrage opportunities if enabled and we have collection data
+                            if (self.enable_arbitrage_analysis and self.offers_client and 
+                                'collection_slug' in item_data and item_data.get('collection_slug') not in ['unknown', 'not-found']):
+                                try:
+                                    print(f"💎 Analyzing arbitrage opportunity...")
+                                    item_data = self.offers_client.enrich_item_with_arbitrage_data(item_data)
+                                except Exception as arbitrage_error:
+                                    print(f"⚠️  Arbitrage analysis failed: {arbitrage_error}")
+                                    # Continue without arbitrage data
+                            
+                            # Only save items that have OpenSea offers when arbitrage analysis is enabled
+                            should_save_item = True
+                            if self.enable_arbitrage_analysis:
+                                # Check if item has actual offer data (not just NO_OFFER flag)
+                                has_offer = (item_data.get('opensea_offer_data') is not None and 
+                                           item_data.get('arbitrage_flag') != "⚫ NO_OFFER")
+                                
+                                if not has_offer:
+                                    print(f"⏭️  Skipping item (no OpenSea offers found)")
+                                    should_save_item = False
+                            
+                            if should_save_item:
+                                self.scraped_items.append(item_data)
+                                scraped_count += 1
+                                
+                                # Enhanced success message with collection info and arbitrage flag if available
+                                collection_info = ""
+                                arbitrage_info = ""
+                                
+                                if 'collection_name' in item_data:
+                                    collection_info = f" - Collection: {item_data['collection_name']}"
+                                
+                                if 'arbitrage_flag' in item_data:
+                                    flag = item_data['arbitrage_flag']
+                                    if flag != "⚫ NO_OFFER":
+                                        profit_pct = item_data.get('profit_percentage', 0)
+                                        arbitrage_info = f" - {flag} ({profit_pct:+.1f}%)"
+                                
+                                print(f"✅ Scraped item {scraped_count}: Floor: ${item_data['floor_price']} - Token: #{actual_token_id}{collection_info}{arbitrage_info}")
                     except Exception as url_error:
                         print(f"⚠️  URL construction failed: {url_error}")
                         failed_count += 1

@@ -25,21 +25,24 @@ try {
 Write-Host ""
 Write-Host "🚀 Starting FULL PAGE scrape (this may take 2-4 hours)..." -ForegroundColor Yellow
 Write-Host "🎯 Target: ALL available items (~19,000)" -ForegroundColor Yellow
+Write-Host "🔗 OpenSea enrichment: ENABLED (collection names & slugs)" -ForegroundColor Cyan
+Write-Host "💎 Arbitrage analysis: ENABLED (real-time opportunity detection)" -ForegroundColor Cyan
+Write-Host "📁 Output directory: output\" -ForegroundColor Cyan
 Write-Host ""
 
-# Run the scraper with full page settings
+# Run the scraper with full page settings and OpenSea enrichment
 try {
-    python production_scraper.py --max-items 0 --headless --max-scrolls 400
+    python src\production_scraper.py --max-items 0 --headless --max-scrolls 400 --output-dir output
     $exitCode = $LASTEXITCODE
     
     Write-Host ""
     if ($exitCode -eq 0) {
         Write-Host "✅ Full page scraping completed successfully!" -ForegroundColor Green
-        Write-Host "📁 Check the output files for results." -ForegroundColor Cyan
+        Write-Host "📁 Check the output\ folder for results." -ForegroundColor Cyan
         Write-Host "📊 Expected: 15,000+ items if successful" -ForegroundColor Cyan
     } else {
         Write-Host "⚠️  Scraping completed with errors (exit code: $exitCode)" -ForegroundColor Yellow
-        Write-Host "📁 Check the output files for partial results." -ForegroundColor Cyan
+        Write-Host "📁 Check the output\ folder for partial results." -ForegroundColor Cyan
     }
 } catch {
     Write-Host "❌ Error running scraper: $_" -ForegroundColor Red

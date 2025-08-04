@@ -10,16 +10,22 @@ This scraper was built to **pull floor listing prices on NiftyGateway**
 
 - **Full Page Scraping**: Captures all ~19,000 available NFT collections
 - **Two-Phase Approach**: Efficiently collects URLs first, then processes floor price data
+- **OpenSea Integration**: Automatically enriches data with collection names and slugs for cross-platform analysis
+- **Real-Time Arbitrage Analysis**: Fetches top offers from OpenSea and calculates profit opportunities
+- **Smart Flagging System**: 3-tier color-coded system for arbitrage opportunities (Red/Yellow/Green)
+- **Live ETH Price Updates**: Automatically updates ETH/USD price every minute for accurate calculations
 - **Robust Error Handling**: Gracefully handles network issues, timeouts, and page load failures
 - **Progress Tracking**: Real-time progress updates with success/failure statistics
 - **Interruption-Safe**: Can be stopped anytime with Ctrl+C while preserving partial results
 - **Multiple Output Formats**: Saves data in both JSON and CSV formats
 - **Clean Data Structure**: Outputs only essential fields for arbitrage analysis
 - **Production Ready**: Optimized for headless operation and long-running processes
+- **Smart Filtering**: Only scrapes items with actual listings (skips items with no List Price)
+- **Offer-Only Mode**: When arbitrage analysis is enabled, only saves items with active OpenSea offers for clean output
 
 ## 📊 Output Data Structure
 
-The scraper extracts the following essential data for each collection:
+The scraper extracts the following comprehensive data for each collection:
 
 ```json
 {
@@ -29,9 +35,71 @@ The scraper extracts the following essential data for each collection:
   "actual_token_id": "100000100012",
   "marketplace_url": "https://www.niftygateway.com/marketplace/collection/0x4a524d236760d918993ccfb8675c7e35e9a767a6/1/",
   "actual_marketplace_url": "https://www.niftygateway.com/marketplace/item/0x4a524d236760d918993ccfb8675c7e35e9a767a6/100000100012/",
+  "collection_name": "XCOPY",
+  "collection_slug": "select-works-by-xcopy",
+  "opensea_enriched_at": "2025-08-04T16:27:01.123456",
+  "opensea_collection_url": "https://opensea.io/collection/select-works-by-xcopy",
+  "opensea_item_url": "https://opensea.io/assets/ethereum/0x4a524d236760d918993ccfb8675c7e35e9a767a6/100000100012",
+  "opensea_offer_data": {
+    "offer_amount_wei": "2000000000000000000",
+    "offer_amount_eth": 2.0,
+    "offer_amount_usd": 7100.0,
+    "total_offer_wei": "10000000000000000000",
+    "quantity": 5,
+    "order_hash": "0x5bc9ff0f7fa56c6694f801e17fa08a87f73f612754020ba61006301c7afaf453",
+    "fetched_at": "2025-08-04T16:27:02.456789"
+  },
+  "arbitrage_flag": "🔥 RED",
+  "arbitrage_description": "OpenSea offer >= Nifty price - EXCELLENT arbitrage (instant profit)",
+  "profit_percentage": 1742.5,
+  "potential_profit_usd": 30254.42,
+  "arbitrage_analyzed_at": "2025-08-04T16:27:02.789012",
   "scraped_at": "2025-08-03T18:20:59.111937"
 }
 ```
+
+### OpenSea Integration
+
+The scraper automatically enriches each item with OpenSea collection data:
+- **collection_name**: Human-readable collection name from OpenSea
+- **collection_slug**: OpenSea collection identifier for building URLs
+- **opensea_collection_url**: Direct link to the collection page on OpenSea
+- **opensea_item_url**: Direct link to the specific NFT item on OpenSea
+- **opensea_enriched_at**: Timestamp when OpenSea data was fetched
+
+### Arbitrage Analysis
+
+Real-time arbitrage opportunity detection with 3-tier flagging system and multi-quantity offer support:
+
+**Important**: When arbitrage analysis is enabled, the scraper automatically filters out items with no OpenSea offers to keep the output clean and focused on actual opportunities.
+
+#### Multi-Quantity Offer Handling
+- **Automatic Detection**: Identifies ERC-1155 multi-item offers (itemType 4)
+- **Per-Item Pricing**: Divides total offer amount by quantity for accurate per-item comparison
+- **Quantity Display**: Shows both per-item price and total quantity (e.g., "5x quantity")
+- **Accurate Analysis**: Ensures arbitrage calculations are based on actual per-item values
+
+#### 🔥 RED FLAG - EXCELLENT Arbitrage
+- OpenSea offer >= NiftyGateway listing price
+- **Instant profit potential** - buy on Nifty, sell offer on OpenSea
+
+#### 🟡 YELLOW FLAG - GOOD Arbitrage  
+- OpenSea offer within 10% of NiftyGateway price
+- **Strong arbitrage potential** with minimal risk
+
+#### 🟢 GREEN FLAG - FAIR Arbitrage
+- OpenSea offer within 20% of NiftyGateway price  
+- **Moderate arbitrage potential** for experienced traders
+
+#### ⚪ WHITE FLAG - LIMITED Arbitrage
+- OpenSea offer more than 20% below NiftyGateway price
+- **Low arbitrage potential**
+
+#### ⚫ NO_OFFER - No Market
+- No active offers found on OpenSea
+- **No current arbitrage opportunity**
+
+This enables immediate identification of profitable cross-platform trading opportunities.
 
 ## 🚀 Quick Start
 
@@ -80,13 +148,13 @@ For capturing all ~19,000 collections:
 # Activate environment
 venv\Scripts\activate
 
-# Run full page scrape
-python production_scraper.py --max-items 0 --headless --max-scrolls 400
+# Run full page scrape with output to output\ folder
+python src\production_scraper.py --max-items 0 --headless --max-scrolls 400 --output-dir output
 ```
 
 #### Option 3: Custom Parameters
 ```bash
-python production_scraper.py --max-items 1000 --max-scrolls 100 --headless
+python src\production_scraper.py --max-items 1000 --max-scrolls 100 --headless --output-dir output
 ```
 
 ## ⚙️ Configuration Options
@@ -115,11 +183,18 @@ python production_scraper.py --max-items 1000 --max-scrolls 100 --headless
 
 ```
 niftyscraper/
-├── nifty_scraper.py          # Main scraper class with all logic
-├── production_scraper.py     # CLI interface for production use
-├── config.py                 # Configuration settings
+├── src/                      # Source code directory
+│   ├── nifty_scraper.py         # Main scraper class with all logic
+│   ├── production_scraper.py    # CLI interface for production use
+│   ├── opensea_client.py        # OpenSea collection data integration
+│   ├── opensea_offers_client.py # OpenSea offers and arbitrage analysis
+│   ├── config.py                # Configuration settings
+│   └── run_production.bat       # Alternative batch file (run from src/)
+├── output/                   # Output directory for generated files
+│   ├── nifty_gateway_items_[timestamp].json  # JSON results
+│   └── nifty_gateway_items_[timestamp].csv   # CSV results
 ├── requirements.txt          # Python dependencies
-├── run_production.bat        # Windows batch file for full scraping
+├── run_production.bat        # Main Windows batch file for full scraping
 ├── run_production.ps1        # PowerShell script for full scraping
 ├── venv/                     # Virtual environment
 └── README.md                 # This file
