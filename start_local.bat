@@ -16,8 +16,8 @@ if %ERRORLEVEL% EQU 0 (
     echo.
     echo 🎯 Optimized for low RAM usage:
     echo   - Scan interval: 10 minutes
-    echo   - Max items: 1000 per scan
-    echo   - Reduced scroll attempts
+    echo   - Max items: unlimited per scan
+    echo   - 400 scroll attempts
     echo.
     echo 💬 Discord notifications will appear when opportunities are found.
 ) else (
