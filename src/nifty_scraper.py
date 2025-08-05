@@ -1,6 +1,7 @@
 import time
 import json
 import re
+import os
 from datetime import datetime
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
@@ -85,8 +86,16 @@ class NiftyGatewayScraper:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-            # Let webdriver-manager auto-detect and download compatible driver
-            service = Service(ChromeDriverManager().install())
+            # Use system ChromeDriver in Docker, fallback to webdriver-manager locally
+            chromedriver_path = os.environ.get('CHROMEDRIVER_PATH')
+            if chromedriver_path and os.path.exists(chromedriver_path):
+                # Docker environment with manually installed ChromeDriver
+                service = Service(chromedriver_path)
+                print(f"🐳 Using Docker ChromeDriver: {chromedriver_path}")
+            else:
+                # Local environment - use webdriver-manager
+                service = Service(ChromeDriverManager().install())
+                print("💻 Using webdriver-manager for local development")
 
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             self.driver.implicitly_wait(10)

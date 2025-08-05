@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  arbitrage-scanner:
+    build: .
+    container_name: nifty-arbitrage-scanner
+    restart: unless-stopped
+    environment:
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; print('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

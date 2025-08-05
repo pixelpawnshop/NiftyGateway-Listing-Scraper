@@ -1,0 +1,12 @@
+# Docker deployment files
+.env
+
+# Docker volumes
+logs/
+output/
+
+# Docker build cache
+.dockerignore
+
+# Keep example files
+!.env.example
