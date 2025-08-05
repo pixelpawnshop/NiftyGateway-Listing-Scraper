@@ -80,11 +80,39 @@ class NiftyGatewayScraper:
             if self.headless:
                 chrome_options.add_argument("--headless")
 
+            # Essential stability flags
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            
+            # Let Chrome handle its own user data directory
+            # Don't specify --user-data-dir to avoid conflicts
+            
+            # Core stability flags (tested and working)
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--disable-plugins")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-features=TranslateUI")
+            chrome_options.add_argument("--disable-web-security")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            
+            # Memory management
+            chrome_options.add_argument("--memory-pressure-off")
+            chrome_options.add_argument("--max-active-webgl-contexts=1")
+            
+            # Additional Chrome stability flags
+            chrome_options.add_argument("--disable-software-rasterizer")
+            chrome_options.add_argument("--disable-dev-tools")
+            chrome_options.add_argument("--no-first-run")
+            chrome_options.add_argument("--no-default-browser-check")
+            
+            # Crash resistance
+            chrome_options.add_argument("--disable-crash-reporter")
+            chrome_options.add_argument("--disable-in-process-stack-traces")
 
             # Use system ChromeDriver in Docker, fallback to webdriver-manager locally
             chromedriver_path = os.environ.get('CHROMEDRIVER_PATH')
@@ -858,18 +886,33 @@ class NiftyGatewayScraper:
                 try:
                     print(f"\n🔄 Processing {i}/{len(all_collection_urls)}: {collection_url}")
                     
-                    # Navigate to collection page with retry
+                    # Navigate to collection page with retry and crash recovery
                     navigation_success = False
-                    for retry in range(2):  # Try twice
+                    for retry in range(3):  # Try 3 times instead of 2
                         try:
                             self.driver.get(collection_url)
-                            time.sleep(1)  # Brief wait for page load
+                            time.sleep(2)  # Longer wait for page load
                             navigation_success = True
                             break
                         except Exception as nav_error:
+                            error_msg = str(nav_error)
                             print(f"⚠️  Navigation attempt {retry + 1} failed: {nav_error}")
-                            if retry == 0:
-                                time.sleep(2)  # Wait before retry
+                            
+                            # Check for Chrome crash and restart driver
+                            if "tab crashed" in error_msg.lower() or "session deleted" in error_msg.lower():
+                                print("🔄 Chrome crashed - restarting WebDriver...")
+                                try:
+                                    if self.driver:
+                                        self.driver.quit()
+                                except:
+                                    pass
+                                self.setup_driver()
+                                if not self.driver:
+                                    print("❌ Failed to restart WebDriver")
+                                    break
+                                    
+                            if retry < 2:  # Don't wait on final attempt
+                                time.sleep(3)  # Longer wait before retry
                     
                     if not navigation_success:
                         print(f"❌ Failed to navigate to {collection_url} after retries")

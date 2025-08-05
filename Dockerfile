@@ -55,6 +55,18 @@ COPY README.md .
 # Create output directory
 RUN mkdir -p output
 
+# Create Chrome startup script to handle cleanup
+RUN echo '#!/bin/bash\n\
+# Clean up any existing Chrome processes and temp directories\n\
+pkill -f chrome || true\n\
+rm -rf /tmp/.org.chromium.* /tmp/chrome-* /tmp/.chrome-* || true\n\
+mkdir -p /tmp/chrome-data\n\
+chmod 755 /tmp/chrome-data\n\
+\n\
+# Start the Python application\n\
+exec "$@"\n\
+' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
 # Set environment variables for headless operation
 ENV DISPLAY=:99
 ENV CHROME_BIN=/usr/bin/google-chrome
@@ -67,6 +79,9 @@ EXPOSE 8080
 # Create a non-root user for security
 RUN useradd -m -u 1000 scraper && chown -R scraper:scraper /app
 USER scraper
+
+# Use the entrypoint script
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command - run in continuous mode with headless
 CMD ["python", "src/production_scraper.py", "--continuous", "--headless", "--max-items", "0", "--max-scrolls", "400", "--scan-interval", "300"]
