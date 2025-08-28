@@ -15,8 +15,8 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 # URL patterns
 NIFTY_GATEWAY_BASE_URL = "https://www.niftygateway.com"
-BASE_URL = "https://www.niftygateway.com/explore/nfts/?sort=-likes&chain%5B0%5D=ethereum&categories=Art"
-ART_CATEGORY_URL = "https://www.niftygateway.com/explore/nfts/?sort=-likes&chain%5B0%5D=ethereum&categories=Art"
+BASE_URL = "https://www.niftygateway.com/explore/nfts/?sort=-likes&chain%5B0%5D=ethereum&tags=Generative%20Art%2CPainting%2CCollage%2CDigital%20Painting%20and%20Drawing"
+ART_CATEGORY_URL = "https://www.niftygateway.com/explore/nfts/?sort=-likes&chain%5B0%5D=ethereum&tags=Generative%20Art%2CPainting%2CCollage%2CDigital%20Painting%20and%20Drawing"
 
 # CSS Selectors for different elements
 ITEM_SELECTORS = [
